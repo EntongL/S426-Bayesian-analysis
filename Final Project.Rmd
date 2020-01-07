@@ -1,0 +1,555 @@
+---
+title: "Final Project"
+author: "Entong Li"
+date: "12/9/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(LaplacesDemon)
+library(GeneralizedHyperbolic)
+library(tidyverse)
+library(MASS) 
+library(mvtnorm)
+library(kableExtra)
+exam <- read.csv("exams.csv", header = T)
+exam <- na.omit(exam)
+```
+
+```{r}
+#data cleaning:
+
+data <- exam[,-4]
+data$total.score <- data$math.score + data$reading.score + data$writing.score
+data$parental.level.of.education <- factor(data$parental.level.of.education, levels = c("some high school","high school","some college","associate's degree","bachelor's degree","master's degree"))
+data$educ <- recode(data$parental.level.of.education, "some high school" = 1, "high school"=2, "some college" =3, "associate's degree" =4, "bachelor's degree" = 5, "master's degree" = 6)
+data$test.preparation.course <- ifelse(data$test.preparation.course == "completed", 1, 0)
+data$race <- recode(data$race.ethnicity, "group A" = 1, "group B" = 2, "group C" = 3, "group D" = 4, "group E" = 5)
+```
+
+
+# Executive Summary:
+
+## Research goals:
+
+When students apply to undergraduate or graduate school, they need to provide the information about their parents' educational background, and their race group. It seems like there are some relationships between academic performance and those two factors. However, how these two factors will affect the test score, which is one of the good way to represent their performance, of the students is unclear. Thus, this report will main explore how parents' educational background, race group will help to predict the exam score, or the test preparation course will have more effects on predicting the score.
+
+## Main findings and Implications:
+
+Although the better `parental level of education` and different group of `race ethinicity` could make the studnets have higher score in the tests. Most of the time, the `parental level of education` is not as important as people think in predicting whether a student could preform well in school, while `race ethnicity` has more weight in the preformance of students. Also, if a student want to have a good grade or preformance in school, taking the test preparation course is more efficient than having a good background, as people could not change their background and families but they can improve their ability by learning. 
+
+# Description of Data:
+
+## Dataset:
+
+The dataset used to explored is from `Royce Kimmons`. It collects the scores and other informations of 1000 studnets from public school. It could be accessed here: http://roycekimmons.com/tools/generated_data/exams. 
+
+## Variables:
+
+1. (Response):
+  + math score (22 - 100)
+  + reading score (29 - 100)
+  + writing score (25 - 100)
+  + total score (87 - 299)
+
+2. (Explanatory):
+  + parental level of education (from level 1 to 6):
+    +  some high school, high school, some college, associate's degree, bachelor's degree, master's degree.
+  + race ethnicity (5 groups): group A to group E.
+  + test preparation course: completed or none.
+  + gender: Female or Male
+
+# Bayesian Statistical Analyses of Data:
+
+The the density of the test score is pretty similar to the normal distribution, so the conjugate prior about $y$ (response variable) will be nornal distributed. The analyses can be mainly concluded by two steps: first check whether the test preparation course will be an efficient predictor by building multivariate normal models; second step is using `parental level of education`, `race ethnicity`, and `test preparation course` if necessary, to build an linear regression with test score, then use the Bayesian estimation to get the estimated value of slope of each explanatory variables. 
+
+
+## Determine whether the course could help the test:
+
+In order to maker sure that whether the `test preparation courses` is a efficient predictor to predict the test score, use the multivatiate model to see whether a student has taken the course will have higher average test score than the one has not. In this step, bivariate normal distribution will be applied to model the data.
+
+There are total four groups of tests: math, reading, writing, and total. When determining the mean ($\theta$) and variance ($\Sigma$) of semi-conjugate prior distribution, the sample mean of data and sample covariance matrix will be used here, and the $\nu_0 = 4$, as each group will have two variables: score of student taken the course, score of student has not taken the course. And in order to save the space, **take test preparation course** will be denoted as **Take C**, and **do not take test preparation course** will be denoted as **No C**.
+
+```{r}
+set.seed(1)
+take.c <- data%>%filter(test.preparation.course ==1)
+no.c <- data%>%filter(test.preparation.course == 0)
+take.size = sample(c(1:336),size = 300,replace = FALSE)
+no.size = sample(c(1:663), size = 300, replace = FALSE)
+# take.c <- take.c[take.size,c(5,6,7)]
+# no.c <- no.c[no.size,c(5,6,7)]
+take.c.sp <- take.c%>%filter(as.integer(rownames(take.c)) %in% take.size)
+no.c.sp <- no.c%>%filter(as.integer(rownames(no.c)) %in% no.size)
+math.sp <- as.data.frame(cbind(take.c.sp$math.score, no.c.sp$math.score))
+reading.sp <- as.data.frame(cbind(take.c.sp$reading.score, no.c.sp$reading.score))
+writing.sp <- as.data.frame(cbind(take.c.sp$writing.score, no.c.sp$writing.score))
+total.sp <- as.data.frame(cbind(take.c.sp$total.score, no.c.sp$total.score))
+colnames(math.sp)<-colnames(reading.sp)<-colnames(writing.sp)<-colnames(total.sp)<-c("take.c","no.c")
+
+
+# contour_mvnormal <- function(mu = c(0,0), sigma = diag(1, nrow=2), x_range, y_range, FUN = contour, ...){
+#   x <- seq(x_range[1], x_range[2], length = 500)
+#   y <- seq(y_range[1], y_range[2], length = 500)
+#   grid <- expand.grid(x,y)
+#   z <- array(dmvnorm(x=grid, mean = mu, sigma = sigma), dim = c(500,500))
+#   FUN(x=x, y = y, z = z, ...)  
+# }
+
+```
+
+### For math test:
+
+```{r}
+set.seed(1)
+mu0.math <- apply(math.sp, 2, mean)
+L0.math <- S0.math <- cov(math.sp)
+L0.math.inv <- S0.math.inv <- solve(L0.math)
+nu0 = 4
+
+
+repl <- 5000
+trace <- list(
+  mu = array(NA, dim = c(repl, 2)), 
+  sigma = array(NA, dim =c(repl, 2, 2)),
+  y.pred = array(NA, dim = c(repl, 2))
+)
+
+#statistics
+y.mean <- apply(math.sp, MARGIN  = 2, FUN = mean)
+n <- NROW(math.sp)
+
+#we'll obtain initial values from the prior distribution
+set.seed(1)
+mu <- mvrnorm(1, mu=mu0.math, Sigma= L0.math)
+phi <- rWishart(n = 1, df = 4, Sigma = S0.math.inv)[,,1]
+sigma <- solve(phi)
+y.pred <- mvrnorm(1, mu = mu, Sigma = sigma)
+
+trace$mu[1,] <- mu
+trace$sigma[1,,] <- sigma
+trace$y.pred[1,] <- y.pred
+
+#sampling!
+for (i in 2:repl){
+  mu_n <- solve(L0.math.inv + n*solve(sigma)) %*% (n * phi %*% y.mean + L0.math.inv %*% mu0.math)
+  sigma_n <- solve( L0.math.inv + n*phi)
+  mu <- mvrnorm(1, mu=mu_n, Sigma= sigma_n)
+  nu_n <- n + nu0
+  SS <- array(
+    apply( apply(math.sp, MARGIN = 1, FUN = function(x) (x - mu) %*% t(x - mu)), MARGIN = 1, FUN = sum ),
+    dim = rep(dim(math.sp)[2], dim(math.sp)[2])
+  )
+  s_n_inv <- solve(S0.math + SS)
+  phi <- rWishart(n=1, df=nu_n, Sigma=s_n_inv)[,,1]
+  sigma <- solve(phi)
+  trace$mu[i,] <- mu
+  trace$sigma[i,,] <- sigma
+  trace$y.pred[i,] <- mvrnorm(1, mu = mu, Sigma = sigma)
+}
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(trace$mu[,1], type = 'l', xlab = 'Iteration', ylab="Average math score", ylim = c(60,72))
+lines(trace$mu[,2], type = 'l',col = "red")
+plot(density(trace$mu[,1]), type = "l", xlab = "Average math score",main="Math test", xlim = c(50,72))
+lines(density(trace$mu[,2]), type = "l", col = "red")
+legend("topleft",c("Take C","No C"), fill = c("black","red"))
+math.p <- mean(trace$mu[,1] > trace$mu[,2])
+```
+
+From the graphs above, it's clear that for math test, students who have taken the course are always have higher score than the students has not. The students taken the course will have average math score around 69, while the student didn't take the course will have average math score around 64. So the test preparation course will be a strongly effective and efficient for predicting the math score. 
+
+
+### For reading test:
+
+```{r}
+set.seed(1)
+mu0.reading <- apply(reading.sp, 2, mean)
+L0.reading <- S0.reading <- cov(reading.sp)
+L0.reading.inv <- S0.reading.inv <- solve(L0.reading)
+nu0 = 4
+
+
+repl <- 5000
+trace <- list(
+  mu = array(NA, dim = c(repl, 2)), 
+  sigma = array(NA, dim =c(repl, 2, 2)),
+  y.pred = array(NA, dim = c(repl, 2))
+)
+
+#statistics
+y.mean <- apply(reading.sp, MARGIN  = 2, FUN = mean)
+n <- NROW(reading.sp)
+
+#we'll obtain initial values from the prior distribution
+set.seed(1)
+mu <- mvrnorm(1, mu=mu0.reading, Sigma= L0.reading)
+phi <- rWishart(n = 1, df = 4, Sigma = S0.reading.inv)[,,1]
+sigma <- solve(phi)
+y.pred <- mvrnorm(1, mu = mu, Sigma = sigma)
+
+trace$mu[1,] <- mu
+trace$sigma[1,,] <- sigma
+trace$y.pred[1,] <- y.pred
+
+#sampling!
+for (i in 2:repl){
+  mu_n <- solve(L0.reading.inv + n*solve(sigma)) %*% (n * phi %*% y.mean + L0.reading.inv %*% mu0.reading)
+  sigma_n <- solve( L0.reading.inv + n*phi)
+  mu <- mvrnorm(1, mu=mu_n, Sigma= sigma_n)
+  nu_n <- n + nu0
+  SS <- array(
+    apply( apply(reading.sp, MARGIN = 1, FUN = function(x) (x - mu) %*% t(x - mu)), MARGIN = 1, FUN = sum ),
+    dim = rep(dim(reading.sp)[2], dim(reading.sp)[2])
+  )
+  s_n_inv <- solve(S0.reading + SS)
+  phi <- rWishart(n=1, df=nu_n, Sigma=s_n_inv)[,,1]
+  sigma <- solve(phi)
+  trace$mu[i,] <- mu
+  trace$sigma[i,,] <- sigma
+  trace$y.pred[i,] <- mvrnorm(1, mu = mu, Sigma = sigma)
+}
+
+```
+
+
+```{r}
+par(mfrow = c(1,2))
+plot(trace$mu[,1], type = 'l', xlab = 'Iteration', ylab="Average reading score", ylim = c(60, 80))
+lines(trace$mu[,2], type = 'l',col = "red")
+legend("topright",c("Take C","no C"), fill = c("black","red"))
+plot(density(trace$mu[,1]), type = "l", xlab = "Average reading score",main="Reading test", ylim = c(0, max(density(trace$mu[,2])$y)), xlim = c(60,80))
+lines(density(trace$mu[,2]), type = "l", col = "red")
+reading.P <- mean(trace$mu[,1] > trace$mu[,2])
+```
+
+For the reading test, the gap of average reading score between students taken the course and students didn't is larger than the gap of average of math score, the average scores from the `Take C` group will always have higher value than that from `No C` group. Students taken the course will have average reading score around 73, while the students didn't take the course will have average reading score around 67. So the test preparation course will also be a strongly effective and efficient for predicting the reading score.  
+
+### For writing test:
+
+```{r}
+set.seed(1)
+mu0.writing <- apply(writing.sp, 2, mean)
+L0.writing <- S0.writing <- cov(writing.sp)
+L0.writing.inv <- S0.writing.inv <- solve(L0.writing)
+nu0 = 4
+
+
+repl <- 5000
+trace <- list(
+  mu = array(NA, dim = c(repl, 2)), 
+  sigma = array(NA, dim =c(repl, 2, 2)),
+  y.pred = array(NA, dim = c(repl, 2))
+)
+
+#statistics
+y.mean <- apply(writing.sp, MARGIN  = 2, FUN = mean)
+n <- NROW(writing.sp)
+
+#we'll obtain initial values from the prior distribution
+set.seed(1)
+mu <- mvrnorm(1, mu=mu0.writing, Sigma= L0.writing)
+phi <- rWishart(n = 1, df = 4, Sigma = S0.writing.inv)[,,1]
+sigma <- solve(phi)
+y.pred <- mvrnorm(1, mu = mu, Sigma = sigma)
+
+trace$mu[1,] <- mu
+trace$sigma[1,,] <- sigma
+trace$y.pred[1,] <- y.pred
+
+#sampling!
+for (i in 2:repl){
+  mu_n <- solve(L0.writing.inv + n*solve(sigma)) %*% (n * phi %*% y.mean + L0.writing.inv %*% mu0.writing)
+  sigma_n <- solve( L0.writing.inv + n*phi)
+  mu <- mvrnorm(1, mu=mu_n, Sigma= sigma_n)
+  nu_n <- n + nu0
+  SS <- array(
+    apply( apply(writing.sp, MARGIN = 1, FUN = function(x) (x - mu) %*% t(x - mu)), MARGIN = 1, FUN = sum ),
+    dim = rep(dim(writing.sp)[2], dim(writing.sp)[2])
+  )
+  s_n_inv <- solve(S0.writing + SS)
+  phi <- rWishart(n=1, df=nu_n, Sigma=s_n_inv)[,,1]
+  sigma <- solve(phi)
+  trace$mu[i,] <- mu
+  trace$sigma[i,,] <- sigma
+  trace$y.pred[i,] <- mvrnorm(1, mu = mu, Sigma = sigma)
+}
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(trace$mu[,1], type = 'l', xlab = 'Iteration', ylab="Average writing score", ylim = c(60,80))
+lines(trace$mu[,2], type = 'l',col = "red")
+legend("topright",c("Take C","no C"), fill = c("black","red"))
+plot(density(trace$mu[,1]), type = "l", xlab = "Average writing score",main="Writing test", ylim = c(0, max(density(trace$mu[,2])$y)), xlim = c(60,80))
+lines(density(trace$mu[,2]), type = "l", col = "red")
+writing.P <- mean(trace$mu[,1] > trace$mu[,2])
+```
+
+For the writing score, the average writing score from students taken the course is absolutely higher than that from the students didn't take the course. The difference between these two groups for writing test is more significant than the previous two tests, as the densities of these two groups do not have any overlabed. So, for the writing test, students taken the test preparation course will absolutely have higher score.
+
+
+### For total score:
+
+
+```{r}
+set.seed(1)
+mu0.total <- apply(total.sp, 2, mean)
+L0.total <- S0.total <- cov(total.sp)
+L0.total.inv <- S0.total.inv <- solve(L0.total)
+nu0 = 4
+
+
+repl <- 5000
+trace <- list(
+  mu = array(NA, dim = c(repl, 2)), 
+  sigma = array(NA, dim =c(repl, 2, 2)),
+  y.pred = array(NA, dim = c(repl, 2))
+)
+
+#statistics
+y.mean <- apply(total.sp, MARGIN  = 2, FUN = mean)
+n <- NROW(total.sp)
+
+#we'll obtain initial values from the prior distribution
+set.seed(1)
+mu <- mvrnorm(1, mu=mu0.total, Sigma= L0.total)
+phi <- rWishart(n = 1, df = 4, Sigma = S0.total.inv)[,,1]
+sigma <- solve(phi)
+y.pred <- mvrnorm(1, mu = mu, Sigma = sigma)
+
+trace$mu[1,] <- mu
+trace$sigma[1,,] <- sigma
+trace$y.pred[1,] <- y.pred
+
+#sampling!
+for (i in 2:repl){
+  mu_n <- solve(L0.total.inv + n*solve(sigma)) %*% (n * phi %*% y.mean + L0.total.inv %*% mu0.total)
+  sigma_n <- solve( L0.total.inv + n*phi)
+  mu <- mvrnorm(1, mu=mu_n, Sigma= sigma_n)
+  nu_n <- n + nu0
+  SS <- array(
+    apply( apply(total.sp, MARGIN = 1, FUN = function(x) (x - mu) %*% t(x - mu)), MARGIN = 1, FUN = sum ),
+    dim = rep(dim(total.sp)[2], dim(total.sp)[2])
+  )
+  s_n_inv <- solve(S0.total + SS)
+  phi <- rWishart(n=1, df=nu_n, Sigma=s_n_inv)[,,1]
+  sigma <- solve(phi)
+  trace$mu[i,] <- mu
+  trace$sigma[i,,] <- sigma
+  trace$y.pred[i,] <- mvrnorm(1, mu = mu, Sigma = sigma)
+}
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(trace$mu[,1], type = 'l', xlab = 'Iteration', ylab="Average total score", ylim = c(185,225))
+lines(trace$mu[,2], type = 'l',col = "red")
+plot(density(trace$mu[,1]), type = "l", xlab = "Average total score",main="Total test", ylim = c(0, max(density(trace$mu[,2])$y)), xlim = c(185,225))
+lines(density(trace$mu[,2]), type = "l", col = "red")
+legend("top",c("take C","no C"), fill = c("black","red"))
+total.P <- mean(trace$mu[,1] > trace$mu[,2])
+```
+
+For total score, the difference of average score between students taken the course and students didn't is very significant. It's very clear that students take the course will have higher average total score than the students didn't take the course. Most of the students take the course will have average total score around 215, while the students didn't take the course will have average total score around 195. 
+
+Overall, `test preparation course` is an effecitive and efficient predictor to predict the scores of an student. 
+
+## Bayesian Linear Regression:
+
+In order to find out the relationship between score and parental level of education, race ethnictity, and test preparation course, using the regression model will be one of the useful and efficient way. Here,$Y = (y_1,y_2,...,y_n)$ for $i = 1,2,3,...,n$, and $y_i$ will be represented the total test score,or math score, or reading score, or writing score,  of student $i$, $X$ will be a matrix of $x_{i,j}$. $x_{i,j}$ is the information of student $i$, where $x_{i,1}$ is parental level of education, $x_{i,2}$ is race ethnicity, and $x_{i,3}$ is test preparation course.  The linear model will be $Y \sim N(X\beta, \sigma^2)$.
+
+
+## $Y$ is total score:
+
+```{r}
+#Bayesian linear model for total score:
+set.seed(426)
+y <- data$total.score
+X <- as.matrix(unname(data[,c(4,9,10)]))
+n = length(y)
+g = n
+nu0 = 2
+sigma20 = 55
+S = 1000
+p = 3
+sigma2 = 1/rgamma(1, nu0/2, nu0*sigma20/2)
+ssrg = t(y) %*% (diag(1,nrow = n) - (g/(g+1)) * X %*%solve(t(X)%*%X)%*%t(X))%*%y
+beta.hat = solve(t(X)%*%(X))%*%t(X)%*%y
+#p.beta = rnorm(1,(g/(g+1))*beta.hat, sigma2* (g/(g+1))*solve(t(X)%*%X))
+p.sigma = 1/rgamma(p+1, (nu0+n)/2, (nu0*sigma20 + ssrg)/2)
+S = 1000
+s2 = p.sigma
+Vb<- g* solve( t(X)%*%X) / ( g+1)
+Eb<- Vb%*%t(X)%*%y
+E<-matrix(rnorm(S*p , 0 , sqrt( s2 ) ) , S , p)
+beta<-t( t(E%*%chol(Vb) ) +c(Eb) )
+```
+
+```{r}
+post.mean <- (g/(g+1))*beta
+cf <- matrix(NA, nrow = 3, ncol = 3, dimnames = list(c("test preparation course","parental level of education", "race ethnicity"),c("posterior mean","2.5%","97.5%")))
+for (i in 1:3) {
+  cf[i,1] = mean(beta[,i])
+  cf[i,2] = unname(quantile(beta[,i], probs = c(0.025, 0.975))[1])
+  cf[i,3] = unname(quantile(beta[,i], probs = c(0.025, 0.975))[2])
+}
+kable(cf, "latex", booktabs = T, caption = "Table 1: Total Score") %>%
+kable_styling(latex_options = c("striped", "hold_position"))
+
+y.bayes = X%*%unname(cf[,1])
+#plot(y ~ y.bayes)
+plot(density(y), type = "l", lty = 1, main = "Density of total score")
+lines(density(y.bayes), type = "l", lty = 2)
+legend("topright",c("prior","posterior"), lty = 1:2)
+```
+
+According to the Table 1, the estimated slope of each predictor is positive, meaning that these three variables have positive relationship with the response variable: total score. For total score, the `parental level of education` has the smallest slope, so it affects the total score least comparing to the other two variables. And the `test preparation course` has the largest value of slope, meaning that it affects the total score mostly. And the second graph shows the densities of prior total score and posterior total score. Comparing to the prior distirbution, the posterior one is more spread-out, but they have the same center value, which is also the mean value, 200. So linear model does will for predicting total score. 
+
+
+## $Y$ is math score:
+
+```{r}
+set.seed(426)
+y <- data$math.score
+X <- as.matrix(unname(data[,c(4,9,10)]))
+n = length(y)
+g = n
+nu0 = 2
+sigma20 = 20
+S = 1000
+p = 3
+sigma2 = 1/rgamma(1, nu0/2, nu0*sigma20/2)
+ssrg = t(y) %*% (diag(1,nrow = n) - (g/(g+1)) * X %*%solve(t(X)%*%X)%*%t(X))%*%y
+beta.hat = solve(t(X)%*%(X))%*%t(X)%*%y
+#p.beta = rnorm(1,(g/(g+1))*beta.hat, sigma2* (g/(g+1))*solve(t(X)%*%X))
+p.sigma = 1/rgamma(p+1, (nu0+n)/2, (nu0*sigma20 + ssrg)/2)
+S = 1000
+s2 = p.sigma
+Vb<- g* solve( t(X)%*%X) / ( g+1)
+Eb<- Vb%*%t(X)%*%y
+E<-matrix(rnorm(S*p , 0 , sqrt( s2 ) ) , S , p)
+beta<-t( t(E%*%chol(Vb) ) +c(Eb) )
+```
+
+```{r}
+post.mean <- (g/(g+1))*beta.hat
+cf <- matrix(NA, nrow = 3, ncol = 3, dimnames = list(c("test preparation course","parental level of education", "race ethnicity"),c("posterior mean","2.5%","97.5%")))
+for (i in 1:3) {
+  cf[i,1] = mean(beta[,i])
+  cf[i,2] = unname(quantile(beta[,i], probs = c(0.025, 0.975))[1])
+  cf[i,3] = unname(quantile(beta[,i], probs = c(0.025, 0.975))[2])
+}
+kable(cf, "latex", booktabs = T, caption = "Table 2: Math Score") %>%
+kable_styling(latex_options = c("striped", "hold_position"))
+
+y.bayes = X%*%unname(cf[,1])
+#plot(y ~ y.bayes)
+plot(density(y), type = "l", lty = 1, main = "Density of math score")
+lines(density(y.bayes), type = "l", lty = 2)
+legend("topright",c("prior","posterior"), lty = 1:2)
+```
+
+According to the Table 2, all three variables have positive relationship with math score, the increasing of any of these variables will increase the value of math score. And the `parental level of education` still has the smallest slope within three variables, and `race ethnicity` has the largest value of slope, meaning that the `race ethnicity` affects the math score more than other two variables. And in the second graph, the posterior density looks very similar to the prior density, but the posterior one seems to have smaller mean value, as it center at around 65, while the prior one center at around 70. So the linear model does well in math test.
+
+## $Y$ is reading score:
+
+```{r}
+set.seed(426)
+y <- data$reading.score
+X <- as.matrix(unname(data[,c(4,9,10)]))
+n = length(y)
+g = n
+nu0 = 2
+sigma20 = 20
+S = 1000
+p = 3
+sigma2 = 1/rgamma(1, nu0/2, nu0*sigma20/2)
+ssrg = t(y) %*% (diag(1,nrow = n) - (g/(g+1)) * X %*%solve(t(X)%*%X)%*%t(X))%*%y
+beta.hat = solve(t(X)%*%(X))%*%t(X)%*%y
+#p.beta = rnorm(1,(g/(g+1))*beta.hat, sigma2* (g/(g+1))*solve(t(X)%*%X))
+p.sigma = 1/rgamma(p+1, (nu0+n)/2, (nu0*sigma20 + ssrg)/2)
+S = 1000
+s2 = p.sigma
+Vb<- g* solve( t(X)%*%X) / ( g+1)
+Eb<- Vb%*%t(X)%*%y
+E<-matrix(rnorm(S*p , 0 , sqrt( s2 ) ) , S , p)
+beta<-t( t(E%*%chol(Vb) ) +c(Eb) )
+```
+
+```{r}
+post.mean <- (g/(g+1))*beta.hat
+cf <- matrix(NA, nrow = 3, ncol = 3, dimnames = list(c("test preparation course","parental level of education", "race ethnicity"),c("posterior mean","2.5%","97.5%")))
+for (i in 1:3) {
+  cf[i,1] = mean(beta[,i])
+  cf[i,2] = unname(quantile(beta[,i], probs = c(0.025, 0.975))[1])
+  cf[i,3] = unname(quantile(beta[,i], probs = c(0.025, 0.975))[2])
+}
+kable(cf, "latex", booktabs = T, caption = "Table 3: Reading Score") %>%
+kable_styling(latex_options = c("striped", "hold_position"))
+
+y.bayes = X%*%unname(cf[,1])
+#plot(y ~ y.bayes)
+plot(density(y), type = "l", lty = 1, main = "Density of reading score")
+lines(density(y.bayes), type = "l", lty = 2)
+legend("topright",c("prior","posterior"), lty = 1:2)
+```
+
+According to the Table 3, it's still the `parental level of education` has the lowest value of slope, and `race ethnicity` still has the largest value of slope, and all of the slopes are postitive. Thus, it could be concluded that for reading test, all these three variables could effect the reading score postitively, and the `race ethnicity` will affect most, and `parental level of education` will affect least. The second graph is the comparison of density between prior and posterior. For the reading test, the density of posterior is more spread-out, but it still has the same center point with the prior one. So the liner model does well in reading test.
+
+## $Y$ is writing score:
+
+```{r}
+set.seed(426)
+y <- data$writing.score
+X <- as.matrix(unname(data[,c(4,9,10)]))
+n = length(y)
+g = n
+nu0 = 2
+sigma20 = 20
+S = 1000
+p = 3
+sigma2 = 1/rgamma(1, nu0/2, nu0*sigma20/2)
+ssrg = t(y) %*% (diag(1,nrow = n) - (g/(g+1)) * X %*%solve(t(X)%*%X)%*%t(X))%*%y
+beta.hat = solve(t(X)%*%(X))%*%t(X)%*%y
+#p.beta = rnorm(1,(g/(g+1))*beta.hat, sigma2* (g/(g+1))*solve(t(X)%*%X))
+p.sigma = 1/rgamma(p+1, (nu0+n)/2, (nu0*sigma20 + ssrg)/2)
+S = 1000
+s2 = p.sigma
+Vb<- g* solve( t(X)%*%X) / ( g+1)
+Eb<- Vb%*%t(X)%*%y
+E<-matrix(rnorm(S*p , 0 , sqrt( s2 ) ) , S , p)
+beta<-t( t(E%*%chol(Vb) ) +c(Eb) )
+```
+
+```{r}
+post.mean <- (g/(g+1))*beta.hat
+cf <- matrix(NA, nrow = 3, ncol = 3, dimnames = list(c("test preparation course","parental level of education", "race ethnicity"),c("posterior mean","2.5%","97.5%")))
+for (i in 1:3) {
+  cf[i,1] = mean(beta[,i])
+  cf[i,2] = unname(quantile(beta[,i], probs = c(0.025, 0.975))[1])
+  cf[i,3] = unname(quantile(beta[,i], probs = c(0.025, 0.975))[2])
+}
+kable(cf, "latex", booktabs = T, caption = "Table 4: Writing Score") %>%
+kable_styling(latex_options = c("striped", "hold_position"))
+
+y.bayes = X%*%unname(cf[,1])
+#plot(y ~ y.bayes)
+plot(density(y), type = "l", lty = 1, main = "Density of writing score")
+lines(density(y.bayes), type = "l", lty = 2)
+legend("topright",c("prior","posterior"), lty = 1:2)
+```
+
+According to the Table 4, all these three variables have postive slope, and `parental level of education` still has the lowest value of slope, but for writing test, `test preparation course` has the highest value of slope, showing that all there variables have positive relationship with writing score, and `test preparation course` will affect the writing score most, while `parental level of education` will affect least. In the second graph, for writing tes, the posterior density is more spread-out than the prior density, while they center at the same value, which is around 67. The linear model does well in predicting the writing score. 
+
+
+# Conclusion:
+
+Overall, parental level of education and race ethinicity are able to affect the grades or school preformance of students. Their parents have higher level of education could make them have higher grades or better performance in school. And different groups of race ethinicity could also affect studnets' grades and performance, as the collector of this set of data did not annotate which groups in `race ethnicity` represents which race groups, it could not be told that which race would preform better. Although parental level of education and race ethnicity could affect studnet's grades and performance in school positively, these two factors do not granrantee that students could have good grades and performance if they have good background. Comparing to parental level of education and race ethnicity, whether the students have taken the test perparation course matters more. If a studnets could take the test preparation course, he/she would have higher probability to do well in school. Students cannot change the conditions that they born with, like the parental level of education and race, however, they could improve themselves by learning, as learning is more helpful and efficient to imprave their performance than the conditions they are born with.
+
+Furthermore, as this project does not discuss about how the gender of students could affect their grade and performance in school, if there could be a investigation following this project, it will be interesting to find out whehter different gender will have different level of affect on the results in this linear model. Especially there is a stereotype that female does not perform as well as male in math, but do better in reading and writing. It's fun to explore that if the `parental level of education` and `race ethinicity` will have the same effects on score for all genders. 
